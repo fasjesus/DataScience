@@ -1,0 +1,228 @@
+# Carregar bibliotecas necessárias
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(readr)
+
+# Definir diretório de trabalho
+setwd("C:\\Users\\fdpc0\\OneDrive\\Área de Trabalho\\uesclem\\2024\\DataScience\\Vendas")
+
+# Carregar os dados do CSV
+data <- read_csv("dataset.csv")
+
+# Verificar valores não numéricos na Semana 2
+non_numeric_week2 <- data %>%
+  filter(!is.na(`Semana 2`) & !is.numeric(as.numeric(`Semana 2`))) %>%
+  select(`ID venda`, `Semana 2`)
+
+if(nrow(non_numeric_week2) > 0) {
+  print('Valores não numéricos ou problemáticos na Semana 2:')
+  print(non_numeric_week2)
+}
+
+# Converter Semana 2 para numérico, tratando valores não numéricos
+data <- data %>%
+  mutate(`Semana 2` = as.numeric(`Semana 2`))
+
+# 1. Descrição dos dados excluindo a primeira coluna
+print('Sumário dos dados (excluindo a primeira coluna):')
+print(summary(data[, -1]))
+
+# 2. Identificar valores faltantes e/ou não inteiros
+missing_values <- colSums(is.na(data))
+print('Valores Faltantes:')
+print(missing_values)
+
+non_integers <- sapply(data, function(x) any(x != floor(x)))
+print('Colunas com Valores Não Inteiros:')
+print(names(non_integers[non_integers]))
+
+# 3. Avaliar distribuição normal usando teste de Shapiro-Wilk e plotar densidades
+normal_cols <- character(0) # Vetor para armazenar colunas com distribuição normal
+
+for (col in names(data)[-1]) {
+  # Teste de Shapiro-Wilk para avaliar normalidade
+  test <- shapiro.test(data[[col]])
+  p_value <- test$p.value
+  
+  print(paste('Teste de Shapiro-Wilk para', col, ': p-value =', p_value))
+  
+  if (p_value > 0.05) { # Se p-value > 0.05, considera-se distribuição normal
+    normal_cols <- c(normal_cols, col)
+    
+    # Plotar densidade
+    p <- ggplot(data, aes_string(x = col, fill = col)) +
+      geom_density(alpha = 0.5) +
+      labs(title = paste('Distribuição de', col), x = col, y = 'Densidade') +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+        axis.title.x = element_text(size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        legend.position = "none"
+      )
+    
+    print(p)
+  }
+}
+
+# Imprimir colunas com distribuição normal
+if (length(normal_cols) > 0) {
+  print('Colunas com distribuição normal:')
+  print(normal_cols)
+} else {
+  print('Nenhuma coluna apresenta distribuição normal.')
+}
+
+data_sem_id <- data %>% select(-`ID venda`)
+
+# 4. Calcular a proporção de números pares em cada semana
+prop_numeros_pares <- data_sem_id %>%
+  summarise(
+    Prop_Semana1 = mean(`Semana 1` %% 2 == 0, na.rm = TRUE),
+    Prop_Semana2 = mean(`Semana 2` %% 2 == 0, na.rm = TRUE),
+    Prop_Semana3 = mean(`Semana 3` %% 2 == 0, na.rm = TRUE),
+    Prop_Semana4 = mean(`Semana 4` %% 2 == 0, na.rm = TRUE),
+    Prop_Semana5 = mean(`Semana 5` %% 2 == 0, na.rm = TRUE)
+  )
+
+# Imprimir as proporções calculadas
+print("Proporções de números pares:")
+print(prop_numeros_pares)
+
+# Teste de Kruskal-Wallis para comparar as proporções entre as semanas
+# Combinar todos os valores em uma única coluna e criar um fator de grupo
+valores <- unlist(data_sem_id)
+semanas <- rep(colnames(data_sem_id), each = nrow(data_sem_id))
+
+# Executar o teste de Kruskal-Wallis
+kruskal_test <- kruskal.test(valores ~ semanas)
+
+# Imprimir o resultado do teste de Kruskal-Wallis
+print("Resultado do teste de Kruskal-Wallis:")
+print(kruskal_test)
+
+
+# Plotar o boxplot comparativo
+ggplot(data_sem_id, aes(x = Semana, y = Valor, fill = Semana)) +
+  geom_boxplot() +
+  labs(title = "Boxplot Comparativo por Semana",
+       x = "Semana",
+       y = "Valor") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Remover a legenda se não for necessário
+
+
+# Carregar bibliotecas necessárias
+library(tidyverse)
+library(ggplot2)
+
+# Executar o teste de Friedman
+friedman_test <- friedman.test(as.matrix(data_sem_id))
+
+# Imprimir o resultado do teste de Friedman
+print("Resultado do teste de Friedman:")
+print(friedman_test)
+
+
+# Teste de proporção para comparar as semanas
+# Vamos usar um teste exato de Fisher para comparar as proporções
+test_fisher <- function(col1, col2) {
+  fisher.test(matrix(c(
+    sum(col1 %% 2 == 0, na.rm = TRUE), sum(col1 %% 2 != 0, na.rm = TRUE),
+    sum(col2 %% 2 == 0, na.rm = TRUE), sum(col2 %% 2 != 0, na.rm = TRUE)
+  ), nrow = 2, byrow = TRUE))$p.value
+}
+
+# Comparar todas as combinações de semanas
+semanas <- colnames(data)[-1]  # Excluir a primeira coluna (ID venda)
+comb <- combn(semanas, 2, simplify = FALSE)
+testes_fisher <- sapply(comb, function(cols) test_fisher(data[[cols[1]]], data[[cols[2]]]))
+
+# Imprimir os resultados dos testes de Fisher com as combinações correspondentes
+print("Testes de Fisher (p-values):")
+resultados_fisher <- setNames(testes_fisher, sapply(comb, function(cols) paste(cols, collapse = " vs ")))
+
+# Imprimir cada combinação e seu valor p em uma nova linha
+for (i in seq_along(resultados_fisher)) {
+  cat(names(resultados_fisher)[i], ": ", resultados_fisher[i], "\n")}
+
+# Carregar bibliotecas necessárias
+library(tidyverse)
+library(reshape2)
+
+# Converter os dados para um formato longo
+data_long <- melt(data_sem_id, variable.name = "Semana", value.name = "Valor")
+
+# Plotar o boxplot comparativo
+ggplot(data_long, aes(x = Semana, y = Valor, fill = Semana)) +
+  geom_boxplot() +
+  labs(title = "Boxplot Comparativo por Semana",
+       x = "Semana",
+       y = "Valor") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Remover a legenda se não for necessário
+
+
+# 5. Comparações entre semanas usando o teste de Wilcoxon pareado
+cols <- names(data)[-1]
+# Lista para armazenar os resultados das comparações
+significant_comparisons <- list()
+# Iterar sobre todas as combinações possíveis de colunas
+for (i in 1:length(cols)) {
+  for (j in (i + 1):length(cols)) {
+    col1 <- cols[i]
+    col2 <- cols[j]
+    
+    # Realizar o teste de Wilcoxon pareado
+    test_result <- wilcox.test(data[[col1]], data[[col2]], paired = TRUE)
+    
+    # Verificar se a diferença é significativa (p-value < 0.05)
+    if (test_result$p.value < 0.05) {
+      significant_comparisons[[paste(col1, col2, sep = " vs ")]] <- test_result$p.value
+      
+      # Plotar o boxplot comparativo
+      p <- ggplot(data, aes_string(x = col1, y = col2)) +
+        geom_boxplot(notch = TRUE, outlier.colour = "red", outlier.shape = 16, outlier.size = 2, alpha = 0.5) +
+        labs(title = paste("Comparação entre", col1, "e", col2), x = col1, y = col2) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+          axis.title.x = element_text(size = 14, face = "bold"),
+          axis.title.y = element_text(size = 14, face = "bold"),
+          axis.text.x = element_text(size = 12),
+          axis.text.y = element_text(size = 12)
+        )
+      
+      print(p)
+    }
+  }
+}
+
+
+# Imprimir as comparações significativas
+print("Comparações significativas:")
+print(significant_comparisons)
+
+# Calcula o número de valores faltantes por coluna
+missing_values <- colSums(is.na(data))
+
+# Mostra as colunas com valores faltantes
+print('Valores Faltantes:')
+print(missing_values)
+
+
+# Exemplo: Identificar índices de linhas com valores faltantes na coluna 'Semana 1'
+missing_indices <- which(is.na(data$`Semana 2`))
+# Exemplo: Mostrar todas as linhas com valores faltantes na coluna 'Semana 1'
+rows_with_missing <- data[which(is.na(data$`Semana 2`)), ]
+
+print('Índices das linhas com valores faltantes na coluna Semana 5:')
+print(missing_indices)
+
+# Mostrar as linhas completas com valores faltantes na coluna 'Semana 1'
+print('Linhas com valores faltantes na coluna Semana 5:')
+print(rows_with_missing)
+
